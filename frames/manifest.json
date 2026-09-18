@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "generatedAt": "2026-09-15T03:01:26.716Z",
+  "frames": [
+    {
+      "id": "doodle-red",
+      "name": "涂鸦红框",
+      "file": "doodle-red.png",
+      "width": 1000,
+      "height": 1000,
+      "hasAlpha": true,
+      "scale": 1,
+      "order": 100,
+      "enabled": true
+    },
+    {
+      "id": "sample-ring-gold",
+      "name": "sample ring gold",
+      "file": "sample-ring-gold.png",
+      "width": 1080,
+      "height": 1080,
+      "hasAlpha": true,
+      "scale": 1,
+      "order": 100,
+      "enabled": true
+    },
+    {
+      "id": "sample-star-blue",
+      "name": "sample star blue",
+      "file": "sample-star-blue.png",
+      "width": 1080,
+      "height": 1080,
+      "hasAlpha": true,
+      "scale": 1,
+      "order": 100,
+      "enabled": true
+    }
+  ]
+}

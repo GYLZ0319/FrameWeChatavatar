@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#F7F6F3">
+<title>微信头像框生成器</title>
+<style>
+:root{
+  --bg:#f7f6f3; --surface:#fff; --line:rgba(0,0,0,.08); --line-strong:rgba(0,0,0,.16);
+  --text:#1c1b22; --text-sub:#6b6873; --text-hint:#9b98a3;
+  --brand:#2a2438; --brand-soft:#edeaf3; --r-md:12px; --r-lg:16px; --pad:20px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue","Microsoft YaHei",sans-serif;
+  font-size:15px;line-height:1.6;-webkit-font-smoothing:antialiased;overscroll-behavior-y:none}
+body{min-height:100vh;min-height:100dvh}
+button{font-family:inherit;font-size:inherit;border:0;background:none;cursor:pointer;color:inherit}
+img{display:block;max-width:100%}
+
+.app{display:flex;flex-direction:column;min-height:100vh;min-height:100dvh;padding-top:env(safe-area-inset-top)}
+.head{padding:28px var(--pad) 20px;text-align:center}
+.head h1{margin:0;font-size:22px;font-weight:500;letter-spacing:.04em}
+.head p{margin:6px 0 0;font-size:14px;color:var(--text-sub)}
+.main{flex:1;display:flex;flex-direction:column;gap:16px;padding-bottom:12px}
+
+.stage{position:relative;width:min(78vw,320px);margin:0 auto;aspect-ratio:1/1}
+.stage canvas{display:block;width:100%;height:100%;border-radius:var(--r-lg);background:var(--surface);
+  box-shadow:0 1px 2px rgba(0,0,0,.04),0 8px 24px rgba(0,0,0,.06);
+  touch-action:none;user-select:none;-webkit-user-drag:none}
+.stage .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;
+  justify-content:center;gap:4px;border-radius:var(--r-lg);border:1px dashed var(--line-strong);
+  background:var(--surface);pointer-events:none}
+.stage .empty span:first-child{font-size:15px;color:var(--text-sub)}
+.stage .empty span:last-child{font-size:13px;color:var(--text-hint)}
+
+.tools{display:flex;justify-content:center}
+.tools button{font-size:13px;color:var(--text-hint);text-decoration:underline;
+  text-underline-offset:3px;padding:4px 8px}
+.tools button:disabled{opacity:.4}
+
+.picker{display:flex;gap:12px;overflow-x:auto;padding:4px var(--pad) 12px;scrollbar-width:none;
+  -webkit-overflow-scrolling:touch}
+.picker::-webkit-scrollbar{display:none}
+.picker .item{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:6px;padding:0}
+.picker .thumb{display:grid;place-items:center;width:56px;height:56px;border-radius:50%;
+  border:2px solid var(--ring,#2a2438);background:var(--surface);transition:transform .15s,box-shadow .15s}
+.picker .thumb i{width:34px;height:34px;border-radius:50%;background:var(--brand-soft)}
+.picker .thumb.pic{border-color:transparent;background:transparent;overflow:visible}
+.picker .thumb.pic img{width:118%;height:118%;object-fit:contain;-webkit-user-drag:none}
+.picker .name{font-size:12px;color:var(--text-sub);white-space:nowrap}
+.picker .item.on .thumb{transform:scale(1.06);box-shadow:0 0 0 3px var(--brand-soft)}
+.picker .item.on .name{color:var(--text);font-weight:500}
+
+.tips{margin:0;padding:0 var(--pad);list-style:none;display:flex;flex-direction:column;gap:4px}
+.tips li{font-size:12px;color:var(--text-hint);padding-left:12px;position:relative;line-height:1.7}
+.tips li::before{content:"";position:absolute;left:0;top:9px;width:4px;height:4px;
+  border-radius:50%;background:var(--line-strong)}
+
+.foot{position:sticky;bottom:0;display:flex;gap:12px;
+  padding:12px var(--pad) calc(12px + env(safe-area-inset-bottom));
+  background:linear-gradient(to top,var(--bg) 72%,transparent)}
+.btn{flex:1;height:48px;border-radius:var(--r-md);font-size:15px;font-weight:500;transition:opacity .15s}
+.btn:disabled{opacity:.4}
+.btn.primary{background:var(--brand);color:#fff}
+.btn.ghost{background:var(--surface);color:var(--text);border:1px solid var(--line-strong)}
+
+.sheet{position:fixed;inset:0;z-index:20;display:none;place-items:center;
+  background:rgba(28,27,34,.72);padding:24px}
+.sheet.on{display:grid}
+.sheet .body{display:flex;flex-direction:column;align-items:center;gap:14px;width:min(78vw,320px)}
+/* -webkit-touch-callout 必须放开，否则微信里长按弹不出「保存图片」 */
+.sheet img{width:100%;border-radius:var(--r-md);-webkit-touch-callout:default}
+.sheet .hint{margin:0;font-size:13px;color:rgba(255,255,255,.82)}
+.sheet .btn{width:100%}
+
+.toast{position:fixed;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));transform:translateX(-50%);
+  z-index:30;max-width:80vw;padding:10px 18px;border-radius:999px;background:rgba(28,27,34,.9);
+  color:#fff;font-size:13px;text-align:center;display:none}
+.toast.on{display:block}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="head">
+    <h1 id="mTitle"></h1>
+    <p id="mSubtitle"></p>
+  </header>
+
+  <main class="main">
+    <div class="stage">
+      <canvas id="stage" width="640" height="640"></canvas>
+      <div class="empty" id="empty"><span>还没有选头像</span><span>点下面的按钮，从相册挑一张</span></div>
+    </div>
+
+    <div class="tools"><button id="btnReset" disabled>重置位置</button></div>
+    <div class="picker" id="picker"></div>
+    <ul class="tips" id="tips"></ul>
+  </main>
+
+  <footer class="foot">
+    <button class="btn ghost" id="btnPick">选择头像</button>
+    <button class="btn primary" id="btnSave" disabled>保存头像</button>
+  </footer>
+
+  <div class="sheet" id="sheet">
+    <div class="body">
+      <img id="result" alt="合成后的头像">
+      <p class="hint" id="sheetHint"></p>
+      <button class="btn ghost" id="btnClose">关闭</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<input type="file" id="file" accept="image/*" style="display:none">
+
+<script>
+(function () {
+  'use strict';
+
+  /* ==========================================================
+     1. 活动配置 —— 换活动只改这一段
+     ========================================================== */
+  var CONFIG = {
+    title: '微信头像框生成器',
+    subtitle: '给头像加一层边框',
+    tips: [
+      '拖动可调整位置，双指可缩放',
+      '保存后到微信「我」→ 点头像 里更换',
+      '边框素材可随时替换，不用改代码'
+    ],
+    defaultFrame: 'ring-moon',
+    exportSize: 1080,
+    /** 预设素材目录（放 manifest.json 的地方）。留空则不加载预设素材。 */
+    presetBase: './frames',
+    frames: [
+      { id: 'ring-plain',   name: '素环',   color: '#2A2438' },
+      { id: 'ring-plain',   name: '素环 · 金', color: '#B08B3E' },
+      { id: 'ring-moon',    name: '月相',   color: '#2A2438' },
+      { id: 'ring-moon',    name: '月相 · 苔', color: '#4A6B4F' },
+      { id: 'ring-star',    name: '星轨',   color: '#3A4A6B' },
+      { id: 'ring-twin',    name: '双线',   color: '#2A2438' },
+      { id: 'ring-dashed',  name: '虚线',   color: '#6B5B95' },
+      { id: 'ring-laurel',  name: '叶环',   color: '#3F5B4A' },
+      { id: 'ring-corner',  name: '圆角方框', color: '#2A2438' }
+    ]
+  };
+
+  /* ==========================================================
+     2. 几何与合成引擎
+     预览用 640、导出用 1080，但共用同一份绘制代码，
+     所以不会出现「预览好看、保存发虚」。
+     ========================================================== */
+  var PREVIEW = 640;
+  // 头像占画布的比例。1 = 铺满整个正方形画布、不内缩，这是正确做法。
+  // 微信头像源图本来就是正方形，加框是在这张画布内部叠一层素材，
+  // 素材盖住头像边缘一圈是正常的，不需要给边框留位置。
+  var AVATAR_FILL = 1;
+  var TAU = Math.PI * 2;
+
+  function geometry(size) {
+    return { size: size, cx: size / 2, cy: size / 2, r: (size * AVATAR_FILL) / 2 };
+  }
+
+  function ringR(geo, lw) {
+    return geo.size / 2 - lw / 2 - geo.size * 0.004;
+  }
+
+  function strokeCircle(ctx, geo, o) {
+    ctx.save();
+    if (o.dash && o.dash.length) ctx.setLineDash(o.dash.map(function (n) { return n * o.width; }));
+    ctx.strokeStyle = o.color;
+    ctx.lineWidth = o.width;
+    ctx.beginPath();
+    ctx.arc(geo.cx, geo.cy, o.radius, 0, TAU);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function ringSamples(geo, radius, count) {
+    var out = [], i, a;
+    for (i = 0; i < count; i++) {
+      a = -Math.PI / 2 + (i / count) * TAU;
+      out.push({ angle: a, x: geo.cx + Math.cos(a) * radius, y: geo.cy + Math.sin(a) * radius });
+    }
+    return out;
+  }
+
+  /* 边框注册表。id 和 CONFIG.frames 里的 id 对应。 */
+  var FRAMES = {
+    'ring-plain': {
+      defaults: { color: '#2A2438', width: 0.038 },
+      render: function (ctx, geo, o) {
+        var w = geo.size * o.width;
+        strokeCircle(ctx, geo, { color: o.color, width: w, radius: ringR(geo, w) });
+      }
+    },
+    'ring-twin': {
+      defaults: { color: '#2A2438', width: 0.016, gap: 0.014 },
+      render: function (ctx, geo, o) {
+        var w = geo.size * o.width, gap = geo.size * o.gap, outer = ringR(geo, w);
+        strokeCircle(ctx, geo, { color: o.color, width: w, radius: outer });
+        strokeCircle(ctx, geo, { color: o.color, width: w * 0.6, radius: outer - w - gap });
+      }
+    },
+    'ring-dashed': {
+      defaults: { color: '#2A2438', width: 0.03, dash: [1.6, 1.2] },
+      render: function (ctx, geo, o) {
+        var w = geo.size * o.width;
+        strokeCircle(ctx, geo, { color: o.color, width: w, radius: ringR(geo, w), dash: o.dash });
+      }
+    },
+    'ring-star': {
+      defaults: { color: '#2A2438', width: 0.011, count: 24, dot: 0.013 },
+      render: function (ctx, geo, o) {
+        var w = geo.size * o.width, radius = ringR(geo, w), dotR = geo.size * o.dot;
+        strokeCircle(ctx, geo, { color: o.color, width: w, radius: radius });
+        ctx.fillStyle = o.color;
+        ringSamples(geo, radius - w * 2.8 - dotR, o.count).forEach(function (p) {
+          ctx.beginPath(); ctx.arc(p.x, p.y, dotR, 0, TAU); ctx.fill();
+        });
+      }
+    },
+    'ring-moon': {
+      defaults: { color: '#2A2438', width: 0.013, count: 12, dot: 0.018 },
+      render: function (ctx, geo, o) {
+        var w = geo.size * o.width, radius = ringR(geo, w), dotR = geo.size * o.dot;
+        strokeCircle(ctx, geo, { color: o.color, width: w, radius: radius });
+        ringSamples(geo, radius - w * 3 - dotR, o.count).forEach(function (p, i) {
+          var k = (i % 3 === 0) ? 1 : 0.45;   // 大小交替，做出月相盈亏
+          ctx.beginPath(); ctx.fillStyle = o.color; ctx.globalAlpha = k;
+          ctx.arc(p.x, p.y, dotR * k, 0, TAU); ctx.fill(); ctx.globalAlpha = 1;
+        });
+      }
+    },
+    'ring-laurel': {
+      defaults: { color: '#3F5B4A', width: 0.012, count: 16, leaf: 0.042 },
+      render: function (ctx, geo, o) {
+        var w = geo.size * o.width, radius = ringR(geo, w), leaf = geo.size * o.leaf;
+        strokeCircle(ctx, geo, { color: o.color, width: w * 0.8, radius: radius });
+        ctx.fillStyle = o.color;
+        ringSamples(geo, radius - w * 3 - leaf * 0.5, o.count).forEach(function (p) {
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate(p.angle + Math.PI / 2);   // 叶片沿切线生长
+          ctx.beginPath();
+          ctx.ellipse(0, 0, leaf * 0.34, leaf, 0, 0, TAU);
+          ctx.fill();
+          ctx.restore();
+        });
+      }
+    },
+    'ring-corner': {
+      defaults: { color: '#2A2438', width: 0.03, inset: 0.02 },
+      render: function (ctx, geo, o) {
+        var w = geo.size * o.width, s = geo.size;
+        var pad = geo.size * o.inset + w / 2, r = s * 0.22;
+        ctx.save();
+        ctx.strokeStyle = o.color; ctx.lineWidth = w;
+        ctx.beginPath();
+        ctx.moveTo(pad + r, pad);
+        ctx.lineTo(s - pad - r, pad); ctx.quadraticCurveTo(s - pad, pad, s - pad, pad + r);
+        ctx.lineTo(s - pad, s - pad - r); ctx.quadraticCurveTo(s - pad, s - pad, s - pad - r, s - pad);
+        ctx.lineTo(pad + r, s - pad); ctx.quadraticCurveTo(pad, s - pad, pad, s - pad - r);
+        ctx.lineTo(pad, pad + r); ctx.quadraticCurveTo(pad, pad, pad + r, pad);
+        ctx.closePath(); ctx.stroke(); ctx.restore();
+      }
+    }
+  };
+
+  /* 头像按 cover 铺满整张正方形画布，此处不做形状裁切。
+     微信里头像同样是正方形、只带一点圆角，圆角由客户端处理。
+     在这里裁会让裁切范围之外露空，素材半透明处透出来就是空白而不是头像。 */
+  function drawAvatar(ctx, img, geo, tf) {
+    var d = geo.r * 2;
+    var cover = Math.max(d / img.naturalWidth, d / img.naturalHeight);
+    var sc = cover * tf.scale;
+    var w = img.naturalWidth * sc, h = img.naturalHeight * sc;
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, 0, geo.size, geo.size);
+    ctx.closePath();
+    ctx.clip();
+    ctx.translate(geo.cx + tf.x, geo.cy + tf.y);
+    if (tf.rot) ctx.rotate(tf.rot);
+    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.restore();
+  }
+
+  function render(canvas, opt) {
+    var size = opt.size;
+    if (canvas.width !== size) canvas.width = size;
+    if (canvas.height !== size) canvas.height = size;
+    var ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, size, size);
+    var geo = geometry(size);
+
+    if (opt.img) drawAvatar(ctx, opt.img, geo, opt.tf);
+
+    // 条目有两种形态：
+    //   矢量 —— { id, options }，查 FRAMES 表用代码画
+    //   素材 —— { image, scale }，设计师画的 PNG，直接贴上去
+    if (opt.frame) {
+      var entry = opt.frame;
+      ctx.save();
+      if (entry.image) {
+        var side = size * (entry.scale || 1);
+        ctx.beginPath();
+        ctx.rect(0, 0, size, size);
+        ctx.clip();                       // 放大后超出画布的部分要裁掉
+        ctx.drawImage(entry.image, (size - side) / 2, (size - side) / 2, side, side);
+      } else {
+        var def = FRAMES[entry.id];
+        if (def) {
+          var o = {}, k;
+          for (k in def.defaults) o[k] = def.defaults[k];
+          for (k in entry.options) o[k] = entry.options[k];
+          def.render(ctx, geo, o);
+        }
+      }
+      ctx.restore();
+    }
+  }
+
+  /** 加载一张图片。crossOrigin 必须给 —— 素材挪到 CDN 后，不给这个属性画布会被污染，导出直接失败。 */
+  function loadImage(src) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = function () { resolve(img); };
+      img.onerror = function () { reject(new Error('图片加载失败')); };
+      img.src = src;
+    });
+  }
+
+  /* ==========================================================
+     3. 状态
+     ========================================================== */
+  var state = {
+    img: null,                    // 已加载的 Image
+    entry: null,                  // 当前选中的边框项
+    tf: { scale: 1, x: 0, y: 0, rot: 0 },
+    busy: false
+  };
+
+  var MIN_SCALE = 1;              // 不允许缩得比 cover 还小，否则可见区里会露白
+  var MAX_SCALE = 4;
+
+  /* ==========================================================
+     4. DOM
+     ========================================================== */
+  var $ = function (id) { return document.getElementById(id); };
+  var canvas = $('stage'), ctxEl = canvas.getContext('2d');
+  var elEmpty = $('empty'), elPicker = $('picker'), elTips = $('tips');
+  var elSheet = $('sheet'), elResult = $('result'), elHint = $('sheetHint');
+  var elToast = $('toast'), elFile = $('file');
+  var btnPick = $('btnPick'), btnSave = $('btnSave'), btnReset = $('btnReset');
+
+  var IS_WECHAT = /MicroMessenger/i.test(navigator.userAgent);
+
+  var toastTimer = null;
+  function toast(msg, ms) {
+    elToast.textContent = msg;
+    elToast.classList.add('on');
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { elToast.classList.remove('on'); }, ms || 2000);
+  }
+
+  function paint() {
+    render(canvas, { size: PREVIEW, img: state.img, tf: state.tf, frame: state.entry });
+  }
+
+  /* ==========================================================
+     5. 边框选择器
+     ========================================================== */
+
+  /** 往选择器里追加一项。矢量边框和预设素材都走这里，所以只能有一份 DOM 构造逻辑。 */
+  function addEntry(item) {
+    var btn = document.createElement('button');
+    btn.className = 'item';
+    btn.type = 'button';
+
+    if (item.thumbSrc) {
+      btn.innerHTML = '<span class="thumb pic"><img alt=""></span><span class="name"></span>';
+      var im = btn.querySelector('img');
+      im.src = item.thumbSrc;
+      im.alt = item.name;
+    } else {
+      btn.innerHTML = '<span class="thumb" style="--ring:' + item.color + '"><i></i></span>' +
+                      '<span class="name"></span>';
+    }
+    btn.querySelector('.name').textContent = item.name;
+
+    btn.onclick = function () {
+      state.entry = item;
+      Array.prototype.forEach.call(elPicker.children, function (c) { c.classList.remove('on'); });
+      btn.classList.add('on');
+      paint();
+    };
+    btn._item = item;
+    elPicker.appendChild(btn);
+    return btn;
+  }
+
+  function buildVectorFrames() {
+    elPicker.innerHTML = '';
+    CONFIG.frames.forEach(function (entry, index) {
+      var def = FRAMES[entry.id];
+      if (!def) { console.warn('未登记的边框 id:', entry.id); return; }
+      var color = entry.color || def.defaults.color;
+      addEntry({
+        key: entry.id + '#' + index,     // 同一套边框可能配多种颜色，用 key 区分
+        id: entry.id,
+        name: entry.name,
+        color: color,
+        options: { color: color }
+      });
+    });
+  }
+
+  /**
+   * 取预设素材。清单由 scripts/build-frames.mjs 生成。
+   *
+   * file:// 下 fetch 同目录 json 会被安全策略拦掉，所以直接跳过并提示——
+   * 双击打开时只是没有预设边框，其余功能照常。要真正加载素材请用 HTTP 访问。
+   */
+  function loadPresetFrames(base) {
+    if (!base) return Promise.resolve([]);
+
+    if (location.protocol === 'file:') {
+      console.info('[frames] 以 file:// 打开时读不到素材清单，已跳过预设边框。' +
+        '用任意静态服务器以 HTTP 访问即可加载。');
+      return Promise.resolve([]);
+    }
+
+    return fetch(base + '/manifest.json', { cache: 'no-cache' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (mf) {
+        var list = (mf.frames || []).filter(function (f) { return f.enabled !== false; });
+        return Promise.all(list.map(function (meta) {
+          var src = meta.src || (base + '/' + meta.file);
+          // 单张失败只丢这一张，不能连累整个列表
+          return loadImage(src).then(function (img) {
+            return { meta: meta, img: img, src: src };
+          }).catch(function (e) {
+            console.warn('[frames] 素材加载失败，已跳过：', meta.file, e && e.message);
+            return null;
+          });
+        }));
+      })
+      .then(function (arr) { return arr.filter(Boolean); })
+      .catch(function (e) {
+        console.warn('[frames] 素材清单不可用，本次只展示矢量边框 ——', e && e.message);
+        return [];
+      });
+  }
+
+  /** 选中默认边框，返回它的 key。先按 key 精确匹配，再按 id 匹配，都没有就选第一项。 */
+  function selectDefaultFrame() {
+    var want = CONFIG.defaultFrame;
+    var btns = elPicker.children;
+    var hit = null, i, item;
+
+    for (i = 0; i < btns.length && !hit; i++) {
+      item = btns[i]._item;
+      if (item && item.key === want) hit = btns[i];
+    }
+    for (i = 0; i < btns.length && !hit; i++) {
+      item = btns[i]._item;
+      if (item && item.id === want) hit = btns[i];
+    }
+    if (!hit) hit = btns[0];
+    if (!hit || !hit._item) return '';
+
+    state.entry = hit._item;
+    Array.prototype.forEach.call(btns, function (c) { c.classList.remove('on'); });
+    hit.classList.add('on');
+    return hit._item.key;
+  }
+
+  /* ==========================================================
+     6. 手势：拖动 + 双指捏合
+     ========================================================== */
+  var gesture = null;
+
+  function dist(t) {
+    return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+  }
+
+  function clamp() {
+    var d = PREVIEW * AVATAR_FILL;         // 头像可见区边长（铺满时即画布边长）
+    // 平移上限：头像的可见区域不能小于圆本身，否则边缘会露白
+    var limit = (d * state.tf.scale - d) / 2;
+    state.tf.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, state.tf.scale));
+    limit = Math.max(0, (d * state.tf.scale - d) / 2);
+    state.tf.x = Math.min(limit, Math.max(-limit, state.tf.x));
+    state.tf.y = Math.min(limit, Math.max(-limit, state.tf.y));
+  }
+
+  canvas.addEventListener('touchstart', function (e) {
+    if (!state.img) return;
+    e.preventDefault();
+    if (e.touches.length === 1) {
+      gesture = { mode: 'drag', x: e.touches[0].clientX, y: e.touches[0].clientY };
+    } else if (e.touches.length === 2) {
+      gesture = { mode: 'pinch', d: dist(e.touches), scale: state.tf.scale };
+    }
+  }, { passive: false });
+
+  canvas.addEventListener('touchmove', function (e) {
+    if (!gesture || !state.img) return;
+    e.preventDefault();
+
+    if (gesture.mode === 'drag' && e.touches.length === 1) {
+      var t = e.touches[0];
+      var rect = canvas.getBoundingClientRect();
+      var k = PREVIEW / rect.width;      // 屏幕像素 → 画布像素，否则大屏手机上拖不动
+      state.tf.x += (t.clientX - gesture.x) * k;
+      state.tf.y += (t.clientY - gesture.y) * k;
+      gesture.x = t.clientX; gesture.y = t.clientY;
+    } else if (gesture.mode === 'pinch' && e.touches.length === 2) {
+      state.tf.scale = gesture.scale * (dist(e.touches) / gesture.d);
+    }
+    clamp();
+    paint();
+  }, { passive: false });
+
+  canvas.addEventListener('touchend', function () { gesture = null; }, { passive: false });
+
+  /* 电脑上也能用鼠标拖着调 */
+  canvas.addEventListener('mousedown', function (e) {
+    if (!state.img) return;
+    var rect = canvas.getBoundingClientRect(), k = PREVIEW / rect.width;
+    var sx = e.clientX, sy = e.clientY;
+    function move(ev) {
+      state.tf.x += (ev.clientX - sx) * k;
+      state.tf.y += (ev.clientY - sy) * k;
+      sx = ev.clientX; sy = ev.clientY;
+      clamp(); paint();
+    }
+    function up() {
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    }
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+  });
+
+  /* ==========================================================
+     7. 选图
+     ========================================================== */
+  function pickAvatar() {
+    if (state.busy) return;
+    state.busy = true;
+    elFile.value = '';
+    elFile.click();
+    state.busy = false;
+  }
+
+  elFile.addEventListener('change', function () {
+    var file = elFile.files && elFile.files[0];
+    if (!file) return;
+
+    // 用 FileReader 读成 dataURL 而不是 blobURL：
+    // dataURL 图片画到 canvas 不会污染画布，toDataURL 才导得出来。
+    // 在 file:// 下直接双击打开时，这一点尤其重要。
+    var reader = new FileReader();
+    reader.onload = function (ev) {
+      var img = new Image();
+      img.onload = function () {
+        state.img = img;
+        state.tf = { scale: 1, x: 0, y: 0, rot: 0 };
+        elEmpty.style.display = 'none';
+        btnSave.disabled = false;
+        btnReset.disabled = false;
+        btnPick.textContent = '换一张';
+        paint();
+      };
+      img.onerror = function () { toast('图片读取失败，换一张试试'); };
+      img.src = ev.target.result;
+    };
+    reader.onerror = function () { toast('图片读取失败，换一张试试'); };
+    reader.readAsDataURL(file);
+  });
+
+  /* ==========================================================
+     8. 保存
+     微信内不能直接下载，必须让用户长按图片保存，
+     所以这里渲染一张真实的 <img>，而不是给 canvas。
+     ========================================================== */
+  function exportDataURL() {
+    var off = document.createElement('canvas');
+    off.width = CONFIG.exportSize;
+    off.height = CONFIG.exportSize;
+    render(off, {
+      size: CONFIG.exportSize,      // 导出走独立的高分辨率画布
+      img: state.img,
+      tf: state.tf,
+      frame: state.entry
+    });
+    return off.toDataURL('image/png');
+  }
+
+  function save() {
+    if (!state.img) return;
+    var url;
+    try {
+      url = exportDataURL();
+    } catch (err) {
+      console.error(err);
+      toast('生成失败，请重试');
+      return;
+    }
+
+    if (IS_WECHAT) {
+      elResult.src = url;
+      elHint.textContent = '长按图片，选择「保存图片」';
+      elSheet.classList.add('on');
+      return;
+    }
+
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'avatar-frame.png';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    toast('已保存，去换头像吧');
+  }
+
+  /* ==========================================================
+     9. 绑定与初始化
+     ========================================================== */
+  btnPick.onclick = pickAvatar;
+  btnSave.onclick = save;
+  btnReset.onclick = function () {
+    state.tf = { scale: 1, x: 0, y: 0, rot: 0 };
+    paint();
+  };
+  $('btnClose').onclick = function () { elSheet.classList.remove('on'); };
+  elSheet.addEventListener('click', function (e) {
+    if (e.target === elSheet) elSheet.classList.remove('on');
+  });
+
+  $('mTitle').textContent = CONFIG.title;
+  $('mSubtitle').textContent = CONFIG.subtitle;
+
+  elTips.innerHTML = '';
+  (CONFIG.tips || []).forEach(function (t) {
+    var li = document.createElement('li');
+    li.textContent = t;
+    elTips.appendChild(li);
+  });
+
+  buildVectorFrames();
+  var firstKey = selectDefaultFrame();
+  paint();
+
+  // 预设素材异步加载，完成后追加到列表末尾。
+  // 加载不到就保持现状，页面功能不受影响。
+  loadPresetFrames(CONFIG.presetBase).then(function (list) {
+    if (!list.length) return;
+    list.forEach(function (r) {
+      addEntry({
+        key: 'img:' + r.meta.id,
+        id: r.meta.id,
+        name: r.meta.name || r.meta.id,
+        thumbSrc: r.src,
+        image: r.img,
+        scale: r.meta.scale || 1
+      });
+    });
+    // 用户在加载期间可能已经手动挑过边框了，那就别覆盖他的选择
+    if (state.entry && state.entry.key === firstKey) selectDefaultFrame();
+  });
+})();
+</script>
+</body>
+</html>

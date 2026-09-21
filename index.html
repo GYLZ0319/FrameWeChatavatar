@@ -130,8 +130,8 @@ img{display:block;max-width:100%}
     subtitle: '给头像加一层边框',
     tips: [
       '拖动可调整位置，双指可缩放',
-      '保存后到微信「我」→ 点头像 里更换',
-      '边框素材可随时替换，不用改代码'
+      '图片缩小时四周会留白（白色），也能拖动调整',
+      '保存后到微信「我」→ 点头像 里更换'
     ],
     defaultFrame: 'ring-moon',
     exportSize: 1080,
@@ -286,7 +286,9 @@ img{display:block;max-width:100%}
     ctx.rect(0, 0, geo.size, geo.size);
     ctx.closePath();
     ctx.clip();
-    ctx.translate(geo.cx + tf.x, geo.cy + tf.y);
+    // 偏移是**归一化**的（单位 = 画布边长），不是像素。
+    // 预览 640、导出 1080 共用同一套数值，位置才对得上。
+    ctx.translate(geo.cx + tf.x * geo.size, geo.cy + tf.y * geo.size);
     if (tf.rot) ctx.rotate(tf.rot);
     ctx.drawImage(img, -w / 2, -h / 2, w, h);
     ctx.restore();
@@ -298,6 +300,12 @@ img{display:block;max-width:100%}
     if (canvas.height !== size) canvas.height = size;
     var ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, size, size);
+
+    // 先铺白底。头像可以被缩到比画布小，露出的部分必须是白色而不是透明——
+    // 透明 PNG 存进相册、在微信里按深色背景显示会变成黑块。
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, size, size);
+
     var geo = geometry(size);
 
     if (opt.img) drawAvatar(ctx, opt.img, geo, opt.tf);
@@ -348,7 +356,7 @@ img{display:block;max-width:100%}
     busy: false
   };
 
-  var MIN_SCALE = 1;              // 不允许缩得比 cover 还小，否则可见区里会露白
+  var MIN_SCALE = 0.3;            // 允许缩到比画布小，露出的部分由 render 填白
   var MAX_SCALE = 4;
 
   /* ==========================================================
@@ -495,14 +503,36 @@ img{display:block;max-width:100%}
     return Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
   }
 
+  /**
+   * 把变换夹在合法范围内：图片不能被拖出去露出空白。
+   *
+   * 可拖多少取决于图片的宽高比，不是一个固定值：
+   *   · 正方形图铺满后没有余量 → 两个方向都拖不动
+   *   · 16:9 横图短边刚好铺满 → 只有左右能拖
+   *   · 竖图反过来 → 只有上下能拖
+   * 早期版本拿固定值当上限，导致正方形图也能拖出大片空白。
+   */
   function clamp() {
-    var d = PREVIEW * AVATAR_FILL;         // 头像可见区边长（铺满时即画布边长）
-    // 平移上限：头像的可见区域不能小于圆本身，否则边缘会露白
-    var limit = (d * state.tf.scale - d) / 2;
     state.tf.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, state.tf.scale));
-    limit = Math.max(0, (d * state.tf.scale - d) / 2);
-    state.tf.x = Math.min(limit, Math.max(-limit, state.tf.x));
-    state.tf.y = Math.min(limit, Math.max(-limit, state.tf.y));
+
+    var side = PREVIEW * AVATAR_FILL;    // 可见区边长
+    var limitX = 0, limitY = 0;
+
+    if (state.img && state.img.naturalWidth && state.img.naturalHeight) {
+      var iw = state.img.naturalWidth;
+      var ih = state.img.naturalHeight;
+      var cover = Math.max(side / iw, side / ih);
+      var drawW = iw * cover * state.tf.scale;
+      var drawH = ih * cover * state.tf.scale;
+      // 绝对值同时覆盖两种情形：
+      //   放大：图片溢出画布，最多拖到边缘贴齐，不能露白
+      //   缩小：图片比画布小，最多拖到图片贴边，不能飘出去
+      limitX = Math.abs(drawW - side) / 2 / side;
+      limitY = Math.abs(drawH - side) / 2 / side;
+    }
+
+    state.tf.x = Math.min(limitX, Math.max(-limitX, state.tf.x));
+    state.tf.y = Math.min(limitY, Math.max(-limitY, state.tf.y));
   }
 
   canvas.addEventListener('touchstart', function (e) {
@@ -522,9 +552,9 @@ img{display:block;max-width:100%}
     if (gesture.mode === 'drag' && e.touches.length === 1) {
       var t = e.touches[0];
       var rect = canvas.getBoundingClientRect();
-      var k = PREVIEW / rect.width;      // 屏幕像素 → 画布像素，否则大屏手机上拖不动
-      state.tf.x += (t.clientX - gesture.x) * k;
-      state.tf.y += (t.clientY - gesture.y) * k;
+      // 屏幕像素 → 归一化偏移（单位 = 画布边长），预览和导出共用同一套数值
+      state.tf.x += (t.clientX - gesture.x) / rect.width;
+      state.tf.y += (t.clientY - gesture.y) / rect.height;
       gesture.x = t.clientX; gesture.y = t.clientY;
     } else if (gesture.mode === 'pinch' && e.touches.length === 2) {
       state.tf.scale = gesture.scale * (dist(e.touches) / gesture.d);
@@ -538,11 +568,11 @@ img{display:block;max-width:100%}
   /* 电脑上也能用鼠标拖着调 */
   canvas.addEventListener('mousedown', function (e) {
     if (!state.img) return;
-    var rect = canvas.getBoundingClientRect(), k = PREVIEW / rect.width;
+    var rect = canvas.getBoundingClientRect();
     var sx = e.clientX, sy = e.clientY;
     function move(ev) {
-      state.tf.x += (ev.clientX - sx) * k;
-      state.tf.y += (ev.clientY - sy) * k;
+      state.tf.x += (ev.clientX - sx) / rect.width;
+      state.tf.y += (ev.clientY - sy) / rect.height;
       sx = ev.clientX; sy = ev.clientY;
       clamp(); paint();
     }
